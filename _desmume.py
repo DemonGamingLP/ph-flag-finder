@@ -36,6 +36,7 @@ CONTROLS = {
     "down": Keys.KEY_DOWN,
     "right": Keys.KEY_RIGHT,
     "left": Keys.KEY_LEFT,
+    "l": Keys.KEY_LID,
 }
 
 FAKE_MIC_BUTTON = "space"

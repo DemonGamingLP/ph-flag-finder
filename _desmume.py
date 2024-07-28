@@ -68,6 +68,7 @@ class DeSmuME(BaseDeSmuME):
         self._refresh_rate = refresh_rate
 
         self.controls_widget = Tk()
+        self.controls_widget.title("ph-flag-finder-quick-settings")
 
         def increase_refresh_rate():
             self._refresh_rate += 10

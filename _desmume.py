@@ -50,7 +50,7 @@ class DeSmuME(BaseDeSmuME):
     rom_region: Region
     has_quit: bool
 
-    def __init__(self, refresh_rate: int = 0, dl_name: str | None = None):
+    def __init__(self, refresh_rate: int = 60, dl_name: str | None = None):
         super().__init__(dl_name)
 
         self.has_quit = False

@@ -6,3 +6,4 @@ py-desmume==0.0.6
 pycairo==1.26.0
 pygame==2.5.2
 pywin32==306
+pillow~=10.3.0

@@ -6,14 +6,9 @@ import pygame
 import win32api
 import win32gui
 from desmume.controls import Keys, keymask
-from desmume.emulator import (
-    SCREEN_HEIGHT,
-    SCREEN_HEIGHT_BOTH,
-    SCREEN_PIXEL_SIZE,
-    SCREEN_WIDTH,
-)
+from desmume.emulator import SCREEN_HEIGHT, SCREEN_PIXEL_SIZE, SCREEN_WIDTH
 from desmume.emulator import DeSmuME as BaseDeSmuME
-from pygame.locals import QUIT, VIDEORESIZE
+from pygame.locals import QUIT
 from ndspy.rom import NintendoDSRom
 
 
@@ -39,6 +34,15 @@ CONTROLS = {
     "l": Keys.KEY_LID,
 }
 
+
+def is_window_focused(desmume):
+    if desmume.should_pause_when_unfocused:
+        if win32gui.GetActiveWindow() == pygame.display.get_wm_info()['window'] or win32gui.GetActiveWindow() == win32gui.FindWindow(None, "ph-flag-finder-quick-settings"):
+            DeSmuME.resume(desmume)
+        else:
+            DeSmuME.pause(desmume)
+
+
 FAKE_MIC_BUTTON = "space"
 MIC_ADDRESSES = {
     Region.US: 0x20EECCF,
@@ -49,6 +53,10 @@ MIC_ADDRESSES = {
 class DeSmuME(BaseDeSmuME):
     rom_region: Region
     has_quit: bool
+    should_pause_when_unfocused: bool = True
+    SCREEN_WIDTH: int = 256
+    SCREEN_HEIGHT: int = 192
+    SCREEN_HEIGHT_BOTH: int = SCREEN_HEIGHT * 2
 
     def __init__(self, refresh_rate: int = 60, dl_name: str | None = None):
         super().__init__(dl_name)
@@ -56,12 +64,12 @@ class DeSmuME(BaseDeSmuME):
         self.has_quit = False
 
         self.pygame_screen = pygame.display.set_mode(
-            (SCREEN_WIDTH, SCREEN_HEIGHT_BOTH), pygame.RESIZABLE
+            (self.SCREEN_WIDTH, self.SCREEN_HEIGHT_BOTH), pygame.RESIZABLE
         )
         pygame.display.set_caption("ph-flag-finder")
         pygame.event.set_allowed(QUIT)
         # Create another surface to draw on
-        self.draw_surface = pygame.surface.Surface((SCREEN_WIDTH, SCREEN_HEIGHT_BOTH))
+        self.draw_surface = pygame.surface.Surface((self.SCREEN_WIDTH, self.SCREEN_HEIGHT_BOTH))
 
         # Starting timer to control the framerate
         self.clock = pygame.time.Clock()
@@ -70,35 +78,52 @@ class DeSmuME(BaseDeSmuME):
         self.controls_widget = Tk()
         self.controls_widget.title("ph-flag-finder-quick-settings")
 
-        def increase_refresh_rate():
-            self._refresh_rate += 10
-            L["text"] = self._refresh_rate
+        self._setup_controls()
+        self.controls_widget.protocol("WM_DELETE_WINDOW", self.quit)
 
-        def decrease_refresh_rate():
-            self._refresh_rate -= 10
-            if self._refresh_rate < 0:
-                self._refresh_rate = 0
+    def _setup_controls(self):
+        def toggle_pause():
+            self.should_pause_when_unfocused = not self.should_pause_when_unfocused
+            pause["text"] = "Pause on unfocus: " + self.should_pause_when_unfocused.__str__()
 
-            if self._refresh_rate == 0:
-                L["text"] = "(no limits)"
-            else:
-                L["text"] = self._refresh_rate
+        def update_refresh_rate(amount):
+            self._refresh_rate = max(0, self._refresh_rate + amount)
+            framerate["text"] = "(no limits)" if self._refresh_rate == 0 else self._refresh_rate
 
-        increase_button = Button(
-            self.controls_widget,
-            text="Decrease speed",
-            command=decrease_refresh_rate,
-        )
-        increase_button.pack()
-        decrease_button = Button(
-            self.controls_widget,
-            text="Increase speed",
-            command=increase_refresh_rate,
-        )
-        decrease_button.pack()
+        def update_resolution(width, height):
+            self.SCREEN_WIDTH += width
+            self.SCREEN_HEIGHT_BOTH += height
+            self.pygame_screen = pygame.display.set_mode(
+                (self.SCREEN_WIDTH, self.SCREEN_HEIGHT_BOTH), pygame.RESIZABLE
+            )
+            resolution["text"] = pygame.display.get_window_size()
 
-        L = Label(self.controls_widget, text="(no limits)")
-        L.pack()
+        def set_default_resolution():
+            self.SCREEN_WIDTH = 256
+            self.SCREEN_HEIGHT_BOTH = 192 * 2
+            self.pygame_screen = pygame.display.set_mode(
+                (self.SCREEN_WIDTH, self.SCREEN_HEIGHT_BOTH), pygame.RESIZABLE
+            )
+            resolution["text"] = pygame.display.get_window_size()
+
+        Button(self.controls_widget, text="Decrease speed", command=lambda: update_refresh_rate(-10)).pack()
+        Button(self.controls_widget, text="Increase speed", command=lambda: update_refresh_rate(10)).pack()
+        Button(self.controls_widget, text="Set framerate to 60", command=lambda: update_refresh_rate(60 - self._refresh_rate)).pack()
+        Button(self.controls_widget, text="Increase current resolution", command=lambda: update_resolution(32, 32)).pack()
+        Button(self.controls_widget, text="Decrease current resolution", command=lambda: update_resolution(-32, -32)).pack()
+        Button(self.controls_widget, text="Set default resolution", command=set_default_resolution).pack()
+        Button(self.controls_widget, text="Toggle pause on unfocus", command=lambda: toggle_pause()).pack()
+
+        framerate = Label(self.controls_widget, text="60")
+        resolution = Label(self.controls_widget, text=pygame.display.get_window_size())
+        pause = Label(self.controls_widget, text="Pause on unfocus: " + self.should_pause_when_unfocused.__str__())
+        framerate.pack()
+        resolution.pack()
+        pause.pack()
+
+    def quit(self):
+        self.has_quit = True
+        self.controls_widget.destroy()
 
     def open(self, file_name: str, auto_resume=True):
         rom = NintendoDSRom.fromFile(file_name)
@@ -123,7 +148,7 @@ class DeSmuME(BaseDeSmuME):
         )
 
         lower_surface = pygame.image.frombuffer(
-            gpu_framebuffer[SCREEN_PIXEL_SIZE * 4 :],
+            gpu_framebuffer[SCREEN_PIXEL_SIZE * 4:],
             (SCREEN_WIDTH, SCREEN_HEIGHT),
             "RGBX",
         )
@@ -135,17 +160,11 @@ class DeSmuME(BaseDeSmuME):
     def cycle(self, with_joystick=True) -> None:
         for event in pygame.event.get():
             if event.type == QUIT:
-                self.has_quit = True
-            elif event.type == VIDEORESIZE:
-                self.pygame_screen = pygame.display.set_mode(
-                    event.size, pygame.RESIZABLE
-                )
-                self._resize_pygame_window(event.size)
+                self.quit()
 
         if self.has_quit:
-            self.controls_widget.destroy()
             return
-
+        is_window_focused(self)
         self._cycle_pygame_window()
 
         # Scale the draw surface to match the size of the screen and blit it on the screen
@@ -184,36 +203,12 @@ class DeSmuME(BaseDeSmuME):
             y -= window_height // 2
 
             # Get scale factors in case the screen has been resized
-            x_scale = window_width / SCREEN_WIDTH
-            y_scale = window_height / SCREEN_HEIGHT_BOTH
-
-            # Adjust x and y coordinates based on the scale factor
-            x = int(x / x_scale)
-            y = int(y / y_scale)  # Adjust for the top screen height
-
-            # Process input if it's valid
-            if x in range(0, window_width) and y in range(0, window_height):
-                self.input.touch_set_pos(x, y)
-            else:
-                self.input.touch_release()
+            x_scale = window_width / self.SCREEN_WIDTH
+            y_scale = window_height / self.SCREEN_HEIGHT_BOTH
+            x = max(int(x / x_scale), 0)
+            y = max(int(y / y_scale), 0)
+            self.input.touch_set_pos(x, y)
         else:
             self.input.touch_release()
 
         super().cycle(with_joystick)
-
-    def _resize_pygame_window(self, new_size: tuple) -> None:
-        """Resize the Pygame window while maintaining the aspect ratio."""
-        current_width, current_height = SCREEN_WIDTH, SCREEN_HEIGHT_BOTH
-        new_width, new_height = new_size
-
-        # Calculate new width based on the aspect ratio
-        aspect_ratio = current_width / current_height
-        new_width = int(new_height * aspect_ratio)
-
-        # Adjust the Pygame screen size to maintain the aspect ratio
-        self.pygame_screen = pygame.display.set_mode(
-            (new_width, new_height), pygame.RESIZABLE
-        )
-
-
-pygame.init()

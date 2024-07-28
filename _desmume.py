@@ -59,7 +59,7 @@ class DeSmuME(BaseDeSmuME):
             (SCREEN_WIDTH, SCREEN_HEIGHT_BOTH), pygame.RESIZABLE
         )
         pygame.display.set_caption("ph-flag-finder")
-
+        pygame.event.set_allowed(QUIT)
         # Create another surface to draw on
         self.draw_surface = pygame.surface.Surface((SCREEN_WIDTH, SCREEN_HEIGHT_BOTH))
 
